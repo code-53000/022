@@ -21,6 +21,18 @@ export function checkStorageAvailable(requiredSize) {
   }
 }
 
+export function getCurrentStorageSize() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return 0
+    return new Blob([raw]).size
+  } catch (e) {
+    return 0
+  }
+}
+
+export const STORAGE_LIMIT_MB = 5
+
 export function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { loadFromStorage, saveToStorage, estimateStorageSize, checkStorageAvailable } from '../utils/storage'
+import { loadFromStorage, saveToStorage, estimateStorageSize, checkStorageAvailable, getCurrentStorageSize, STORAGE_LIMIT_MB } from '../utils/storage'
 import { generateId, daysSince } from '../utils/date'
 
 export const useKokedamaStore = defineStore('kokedama', () => {
@@ -27,16 +27,28 @@ export const useKokedamaStore = defineStore('kokedama', () => {
 
   function persist() {
     const data = { kokedamas: kokedamas.value }
-    const size = estimateStorageSize(data)
+    const totalSize = estimateStorageSize(data)
+    const previousSize = getCurrentStorageSize()
+    const sizeDiff = totalSize - previousSize
 
-    if (size > 0 && !checkStorageAvailable(size)) {
-      lastError.value = `存储空间不足！当前数据约 ${(size / 1024 / 1024).toFixed(2)} MB，已超出浏览器 localStorage 限制（约 5MB）。请导出备份后删除一些旧照片或记录。`
+    if (totalSize > 0 && !checkStorageAvailable(totalSize)) {
+      const totalMB = (totalSize / 1024 / 1024).toFixed(2)
+      const limitMB = STORAGE_LIMIT_MB
+      const overMB = ((totalSize - STORAGE_LIMIT_MB * 1024 * 1024) / 1024 / 1024).toFixed(2)
+      const addedMB = sizeDiff > 0 ? (sizeDiff / 1024).toFixed(0) : '0'
+
+      if (sizeDiff > 0) {
+        lastError.value = `⚠️ 浏览器本地存储空间不足！本次操作新增约 ${addedMB} KB 数据后，总数据大小已达 ${totalMB} MB（浏览器上限约 ${limitMB} MB，超出 ${overMB} MB）。建议导出数据备份后，删除一些含照片的旧养护记录以释放空间。`
+      } else {
+        lastError.value = `⚠️ 浏览器本地存储空间不足！当前总数据大小 ${totalMB} MB 已接近或超出浏览器上限（约 ${limitMB} MB）。建议导出数据备份后，删除一些含照片的旧养护记录以释放空间。`
+      }
       return false
     }
 
     const success = saveToStorage(data)
     if (!success) {
-      lastError.value = '保存失败！可能是存储空间不足或浏览器限制。建议先导出数据备份。'
+      const totalMB = (totalSize / 1024 / 1024).toFixed(2)
+      lastError.value = `保存失败！写入浏览器本地存储时出错（当前总数据约 ${totalMB} MB）。建议先导出数据备份，或清理浏览器缓存后重试。`
       return false
     }
 
@@ -262,6 +274,23 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     return true
   }
 
+  function appendData(data) {
+    const original = [...kokedamas.value]
+    const existingIds = new Set(kokedamas.value.map(k => k.id))
+    const toAdd = (data.kokedamas || []).filter(k => !existingIds.has(k.id))
+
+    toAdd.forEach(k => {
+      kokedamas.value.push(k)
+    })
+
+    const success = persist()
+    if (!success) {
+      kokedamas.value = original
+      return { success: false, added: 0 }
+    }
+    return { success: true, added: toAdd.length }
+  }
+
   function exportData() {
     return {
       kokedamas: kokedamas.value
@@ -293,6 +322,7 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     resetFilters,
     setSorting,
     replaceAllData,
+    appendData,
     exportData
   }
 })

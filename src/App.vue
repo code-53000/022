@@ -108,36 +108,44 @@ function handleImport(event) {
       const jsonString = e.target.result
       const data = importFromJson(jsonString)
 
-      const confirmMsg = data.kokedamas.length > 0
-        ? `即将导入 ${data.kokedamas.length} 颗苔玉的数据。\n\n选择"确定"将覆盖现有所有数据，选择"取消"则保留现有数据并追加导入。`
-        : '文件中没有可导入的数据。'
-
-      if (data.kokedamas.length === 0) {
-        alert(confirmMsg)
+      if (!data.kokedamas || data.kokedamas.length === 0) {
+        alert('文件中没有可导入的数据。')
         return
       }
 
-      if (confirm(confirmMsg)) {
+      const existingCount = store.kokedamas.length
+      const importCount = data.kokedamas.length
+
+      let choice
+      if (existingCount === 0) {
+        choice = 'overwrite'
+      } else {
+        choice = confirm(
+          `即将导入 ${importCount} 颗苔玉的数据（当前已有 ${existingCount} 颗）。\n\n` +
+          `点击"确定"：覆盖现有所有数据（替换为导入内容）\n` +
+          `点击"取消"：追加导入（跳过 ID 重复的条目，保留现有数据）`
+        ) ? 'overwrite' : 'append'
+      }
+
+      if (choice === 'overwrite') {
         const success = store.replaceAllData(data)
         if (success) {
-          alert('导入成功！已覆盖现有数据。')
+          store.clearSelection()
+          alert(`导入成功！已用 ${importCount} 条数据覆盖原有内容。`)
         }
       } else {
-        const existingIds = new Set(store.kokedamas.map(k => k.id))
-        const toAdd = data.kokedamas.filter(k => !existingIds.has(k.id))
-        const original = [...store.kokedamas.value]
-        toAdd.forEach(k => {
-          store.kokedamas.value.push(k)
-        })
-        const success = store.persist()
-        if (success) {
-          alert(`导入成功！已追加 ${toAdd.length} 条新数据。`)
-        } else {
-          store.kokedamas.value = original
+        const result = store.appendData(data)
+        if (result.success) {
+          const skipped = importCount - result.added
+          if (skipped === 0) {
+            alert(`导入成功！已追加 ${result.added} 条新数据。`)
+          } else {
+            alert(`导入成功！已追加 ${result.added} 条新数据，跳过 ${skipped} 条重复数据。`)
+          }
         }
       }
     } catch (err) {
-      alert('导入失败：' + err.message)
+      alert('导入失败：文件格式不正确或内容损坏。\n\n详细错误：' + err.message)
     }
   }
   reader.readAsText(file)
