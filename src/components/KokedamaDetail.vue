@@ -115,6 +115,10 @@
               </div>
             </div>
 
+            <div v-if="formError" class="form-error">
+              ⚠️ {{ formError }}
+            </div>
+
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="cancelAddRecord">
                 取消
@@ -173,7 +177,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import { useKokedamaStore } from '../stores/kokedama'
 import { formatDate, formatDateTime } from '../utils/date'
 
@@ -195,6 +199,7 @@ const kokedama = computed(() => {
 
 const showAddForm = ref(false)
 const photoModalUrl = ref(null)
+const formError = ref('')
 
 const careActions = [
   { value: 'water', label: '浸水', icon: '💧' },
@@ -210,6 +215,22 @@ const newRecord = reactive({
   timestamp: '',
   notes: '',
   photoThumbnail: null
+})
+
+watch(
+  () => props.kokedamaId,
+  () => {
+    showAddForm.value = false
+    formError.value = ''
+    resetNewRecord()
+  }
+)
+
+watch(showAddForm, (val) => {
+  if (val) {
+    formError.value = ''
+    resetNewRecord()
+  }
 })
 
 function resetNewRecord() {
@@ -259,20 +280,33 @@ function handlePhotoSelect(event) {
 }
 
 function submitRecord() {
-  if (!newRecord.action) return
+  formError.value = ''
+
+  if (!newRecord.action) {
+    formError.value = '请选择养护类型'
+    return
+  }
+
+  const hasContent = newRecord.notes.trim() || newRecord.photoThumbnail
+  if (!hasContent) {
+    formError.value = '请填写备注或上传照片'
+    return
+  }
 
   const timestamp = newRecord.timestamp
     ? new Date(newRecord.timestamp).toISOString()
     : new Date().toISOString()
 
-  store.addCareRecord(props.kokedamaId, {
+  const result = store.addCareRecord(props.kokedamaId, {
     action: newRecord.action,
     timestamp,
     notes: newRecord.notes,
     photoThumbnail: newRecord.photoThumbnail
   })
 
-  cancelAddRecord()
+  if (result) {
+    cancelAddRecord()
+  }
 }
 
 function cancelAddRecord() {
@@ -564,6 +598,16 @@ function showPhotoModal(url) {
 .photo-hint {
   font-size: 0.8rem;
   color: #6b7280;
+}
+
+.form-error {
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
 }
 
 .form-actions {

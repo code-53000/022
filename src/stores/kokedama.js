@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { loadFromStorage, saveToStorage } from '../utils/storage'
+import { loadFromStorage, saveToStorage, estimateStorageSize, checkStorageAvailable } from '../utils/storage'
 import { generateId, daysSince } from '../utils/date'
 
 export const useKokedamaStore = defineStore('kokedama', () => {
   const kokedamas = ref([])
   const selectedId = ref(null)
+  const lastError = ref(null)
   const filters = ref({
     mossSpecies: '',
     location: '',
@@ -20,8 +21,27 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     kokedamas.value = data.kokedamas
   }
 
+  function clearError() {
+    lastError.value = null
+  }
+
   function persist() {
-    saveToStorage({ kokedamas: kokedamas.value })
+    const data = { kokedamas: kokedamas.value }
+    const size = estimateStorageSize(data)
+
+    if (size > 0 && !checkStorageAvailable(size)) {
+      lastError.value = `存储空间不足！当前数据约 ${(size / 1024 / 1024).toFixed(2)} MB，已超出浏览器 localStorage 限制（约 5MB）。请导出备份后删除一些旧照片或记录。`
+      return false
+    }
+
+    const success = saveToStorage(data)
+    if (!success) {
+      lastError.value = '保存失败！可能是存储空间不足或浏览器限制。建议先导出数据备份。'
+      return false
+    }
+
+    lastError.value = null
+    return true
   }
 
   const allMossSpecies = computed(() => {
@@ -111,13 +131,18 @@ export const useKokedamaStore = defineStore('kokedama', () => {
       careRecords: []
     }
     kokedamas.value.push(newKokedama)
-    persist()
+    const success = persist()
+    if (!success) {
+      kokedamas.value.pop()
+      return null
+    }
     return newKokedama
   }
 
   function updateKokedama(id, data) {
     const index = kokedamas.value.findIndex(k => k.id === id)
     if (index !== -1) {
+      const original = { ...kokedamas.value[index] }
       kokedamas.value[index] = {
         ...kokedamas.value[index],
         name: data.name,
@@ -126,19 +151,35 @@ export const useKokedamaStore = defineStore('kokedama', () => {
         location: data.location || '',
         notes: data.notes || ''
       }
-      persist()
+      const success = persist()
+      if (!success) {
+        kokedamas.value[index] = original
+        return false
+      }
+      return true
     }
+    return false
   }
 
   function deleteKokedama(id) {
     const index = kokedamas.value.findIndex(k => k.id === id)
     if (index !== -1) {
-      kokedamas.value.splice(index, 1)
-      if (selectedId.value === id) {
+      const removed = kokedamas.value.splice(index, 1)[0]
+      const wasSelected = selectedId.value === id
+      if (wasSelected) {
         selectedId.value = null
       }
-      persist()
+      const success = persist()
+      if (!success) {
+        kokedamas.value.splice(index, 0, removed)
+        if (wasSelected) {
+          selectedId.value = id
+        }
+        return false
+      }
+      return true
     }
+    return false
   }
 
   function addCareRecord(kokedamaId, record) {
@@ -153,7 +194,14 @@ export const useKokedamaStore = defineStore('kokedama', () => {
       }
       kokedama.careRecords.push(newRecord)
       kokedama.careRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      persist()
+      const success = persist()
+      if (!success) {
+        const recordIndex = kokedama.careRecords.findIndex(r => r.id === newRecord.id)
+        if (recordIndex !== -1) {
+          kokedama.careRecords.splice(recordIndex, 1)
+        }
+        return null
+      }
       return newRecord
     }
     return null
@@ -164,10 +212,17 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     if (kokedama) {
       const index = kokedama.careRecords.findIndex(r => r.id === recordId)
       if (index !== -1) {
-        kokedama.careRecords.splice(index, 1)
-        persist()
+        const removed = kokedama.careRecords.splice(index, 1)[0]
+        const success = persist()
+        if (!success) {
+          kokedama.careRecords.splice(index, 0, removed)
+          kokedama.careRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+          return false
+        }
+        return true
       }
     }
+    return false
   }
 
   function selectKokedama(id) {
@@ -197,8 +252,14 @@ export const useKokedamaStore = defineStore('kokedama', () => {
   }
 
   function replaceAllData(data) {
+    const original = [...kokedamas.value]
     kokedamas.value = data.kokedamas || []
-    persist()
+    const success = persist()
+    if (!success) {
+      kokedamas.value = original
+      return false
+    }
+    return true
   }
 
   function exportData() {
@@ -210,6 +271,7 @@ export const useKokedamaStore = defineStore('kokedama', () => {
   return {
     kokedamas,
     selectedId,
+    lastError,
     filters,
     sortBy,
     sortOrder,
@@ -219,6 +281,7 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     filteredKokedamas,
     selectedKokedama,
     init,
+    clearError,
     addKokedama,
     updateKokedama,
     deleteKokedama,

@@ -66,6 +66,10 @@
           ></textarea>
         </div>
 
+        <div v-if="formError" class="form-error">
+          ⚠️ {{ formError }}
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="$emit('close')">
             取消
@@ -80,7 +84,7 @@
 </template>
 
 <script setup>
-import { reactive, computed, onMounted } from 'vue'
+import { reactive, computed, onMounted, ref } from 'vue'
 import { useKokedamaStore } from '../stores/kokedama'
 
 const props = defineProps({
@@ -95,6 +99,7 @@ const emit = defineEmits(['close', 'saved'])
 const store = useKokedamaStore()
 
 const isEdit = computed(() => !!props.kokedamaId)
+const formError = ref('')
 
 const form = reactive({
   name: '',
@@ -118,16 +123,28 @@ onMounted(() => {
 })
 
 function handleSubmit() {
-  if (!form.name.trim()) return
+  formError.value = ''
 
+  if (!form.name.trim()) {
+    formError.value = '请填写苔玉名称'
+    return
+  }
+
+  let success = false
   if (isEdit.value) {
-    store.updateKokedama(props.kokedamaId, { ...form })
+    success = store.updateKokedama(props.kokedamaId, { ...form })
   } else {
     const newKokedama = store.addKokedama({ ...form })
-    store.selectKokedama(newKokedama.id)
+    if (newKokedama) {
+      store.selectKokedama(newKokedama.id)
+      success = true
+    }
   }
-  emit('saved')
-  emit('close')
+
+  if (success) {
+    emit('saved')
+    emit('close')
+  }
 }
 </script>
 
@@ -225,6 +242,16 @@ function handleSubmit() {
 .form-group textarea {
   resize: vertical;
   min-height: 80px;
+}
+
+.form-error {
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
 }
 
 .modal-actions {

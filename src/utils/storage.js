@@ -1,5 +1,26 @@
 const STORAGE_KEY = 'kokedama-care-data'
 
+export function estimateStorageSize(data) {
+  try {
+    const jsonString = JSON.stringify(data)
+    return new Blob([jsonString]).size
+  } catch (e) {
+    return -1
+  }
+}
+
+export function checkStorageAvailable(requiredSize) {
+  try {
+    const testKey = '__storage_test__'
+    const testValue = 'x'.repeat(Math.min(requiredSize, 1024 * 1024))
+    localStorage.setItem(testKey, testValue)
+    localStorage.removeItem(testKey)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 export function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)

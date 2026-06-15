@@ -1,5 +1,13 @@
 <template>
   <div class="app-container">
+    <div v-if="store.lastError" class="error-toast">
+      <div class="error-content">
+        <span class="error-icon">⚠️</span>
+        <span class="error-message">{{ store.lastError }}</span>
+      </div>
+      <button class="error-close" @click="store.clearError()">×</button>
+    </div>
+
     <header class="app-header">
       <div class="header-content">
         <h1>🌿 苔玉养护日记</h1>
@@ -110,17 +118,23 @@ function handleImport(event) {
       }
 
       if (confirm(confirmMsg)) {
-        store.replaceAllData(data)
-        alert('导入成功！已覆盖现有数据。')
+        const success = store.replaceAllData(data)
+        if (success) {
+          alert('导入成功！已覆盖现有数据。')
+        }
       } else {
         const existingIds = new Set(store.kokedamas.map(k => k.id))
-        data.kokedamas.forEach(k => {
-          if (!existingIds.has(k.id)) {
-            store.kokedamas.push(k)
-          }
+        const toAdd = data.kokedamas.filter(k => !existingIds.has(k.id))
+        const original = [...store.kokedamas.value]
+        toAdd.forEach(k => {
+          store.kokedamas.value.push(k)
         })
-        store.persist()
-        alert('导入成功！已追加新数据。')
+        const success = store.persist()
+        if (success) {
+          alert(`导入成功！已追加 ${toAdd.length} 条新数据。`)
+        } else {
+          store.kokedamas.value = original
+        }
       }
     } catch (err) {
       alert('导入失败：' + err.message)
@@ -137,6 +151,74 @@ function handleImport(event) {
   flex-direction: column;
   height: 100vh;
   background: #f3f4f6;
+  position: relative;
+}
+
+.error-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  max-width: 90%;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.error-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.error-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.error-message {
+  color: #991b1b;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.error-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #991b1b;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.error-close:hover {
+  background: #fee2e2;
 }
 
 .app-header {
