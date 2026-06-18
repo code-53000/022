@@ -2,7 +2,19 @@
   <div class="kokedama-list">
     <div class="list-header">
       <h2>我的苔玉</h2>
-      <button class="btn btn-primary" @click="$emit('add')">+ 新增苔玉</button>
+      <div class="header-btns">
+        <button
+          v-if="selectedIds.length > 0"
+          class="btn btn-primary batch-btn"
+          @click="$emit('batch-care', selectedIds)"
+        >
+          批量养护 ({{ selectedIds.length }})
+        </button>
+        <button class="btn btn-secondary" @click="toggleSelectMode">
+          {{ selectMode ? '取消选择' : '批量选择' }}
+        </button>
+        <button class="btn btn-primary" @click="$emit('add')">+ 新增苔玉</button>
+      </div>
     </div>
 
     <div class="filter-bar">
@@ -63,6 +75,14 @@
       <button class="btn btn-secondary" @click="resetAllFilters">重置筛选</button>
     </div>
 
+    <div v-if="selectMode && store.filteredKokedamas.length > 0" class="select-bar">
+      <label class="select-all-label">
+        <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" />
+        全选
+      </label>
+      <span class="select-count">已选 {{ selectedIds.length }} / {{ store.filteredKokedamas.length }}</span>
+    </div>
+
     <div v-if="store.filteredKokedamas.length === 0" class="empty-state">
       <p>还没有苔玉档案，点击右上角"新增苔玉"开始记录吧</p>
     </div>
@@ -72,38 +92,46 @@
         v-for="item in store.filteredKokedamas"
         :key="item.id"
         class="kokedama-card"
-        :class="{ active: store.selectedId === item.id }"
-        @click="store.selectKokedama(item.id)"
+        :class="{
+          active: store.selectedId === item.id,
+          'is-checked': selectedIds.includes(item.id)
+        }"
+        @click="handleCardClick(item.id)"
       >
-        <div class="card-header">
-          <h3>{{ item.name }}</h3>
-          <span
-            class="water-badge"
-            :class="getWaterBadgeClass(item.daysSinceWater)"
-          >
-            {{ item.daysSinceWater === null ? '未记录' : item.daysSinceWater + '天' }}
-          </span>
+        <div v-if="selectMode" class="card-checkbox" @click.stop="toggleSelect(item.id)">
+          <input type="checkbox" :checked="selectedIds.includes(item.id)" />
         </div>
+        <div class="card-body">
+          <div class="card-header">
+            <h3>{{ item.name }}</h3>
+            <span
+              class="water-badge"
+              :class="getWaterBadgeClass(item.daysSinceWater)"
+            >
+              {{ item.daysSinceWater === null ? '未记录' : item.daysSinceWater + '天' }}
+            </span>
+          </div>
 
-        <div class="card-info">
-          <div v-if="item.mossSpecies" class="info-row">
-            <span class="label">苔种:</span>
-            <span class="value">{{ item.mossSpecies }}</span>
+          <div class="card-info">
+            <div v-if="item.mossSpecies" class="info-row">
+              <span class="label">苔种:</span>
+              <span class="value">{{ item.mossSpecies }}</span>
+            </div>
+            <div v-if="item.location" class="info-row">
+              <span class="label">位置:</span>
+              <span class="value">{{ item.location }}</span>
+            </div>
+            <div v-if="item.substrateRatio" class="info-row">
+              <span class="label">基质:</span>
+              <span class="value">{{ item.substrateRatio }}</span>
+            </div>
           </div>
-          <div v-if="item.location" class="info-row">
-            <span class="label">位置:</span>
-            <span class="value">{{ item.location }}</span>
-          </div>
-          <div v-if="item.substrateRatio" class="info-row">
-            <span class="label">基质:</span>
-            <span class="value">{{ item.substrateRatio }}</span>
-          </div>
-        </div>
 
-        <div class="card-footer">
-          <span class="record-count">
-            养护记录: {{ item.careRecords.length }} 条
-          </span>
+          <div class="card-footer">
+            <span class="record-count">
+              养护记录: {{ item.careRecords.length }} 条
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -111,12 +139,15 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import { useKokedamaStore } from '../stores/kokedama'
 
-const emit = defineEmits(['add'])
+const emit = defineEmits(['add', 'batch-care'])
 
 const store = useKokedamaStore()
+
+const selectMode = ref(false)
+const selectedIds = ref([])
 
 const localFilters = reactive({
   mossSpecies: store.filters.mossSpecies,
@@ -142,6 +173,50 @@ watch(
   },
   { deep: true }
 )
+
+const allSelected = computed(() => {
+  return store.filteredKokedamas.length > 0 &&
+    store.filteredKokedamas.every(k => selectedIds.value.includes(k.id))
+})
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) {
+    selectedIds.value = []
+  }
+}
+
+function toggleSelect(id) {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx === -1) {
+    selectedIds.value.push(id)
+  } else {
+    selectedIds.value.splice(idx, 1)
+  }
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = []
+  } else {
+    selectedIds.value = store.filteredKokedamas.map(k => k.id)
+  }
+}
+
+function handleCardClick(id) {
+  if (selectMode.value) {
+    toggleSelect(id)
+  } else {
+    store.selectKokedama(id)
+  }
+}
+
+function clearSelection() {
+  selectedIds.value = []
+  selectMode.value = false
+}
+
+defineExpose({ clearSelection })
 
 function applyFilters() {
   store.setFilters({
@@ -196,6 +271,17 @@ function getWaterBadgeClass(days) {
   color: #1f2937;
 }
 
+.header-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.batch-btn {
+  background: #059669;
+  border-color: #059669;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -244,6 +330,29 @@ function getWaterBadgeClass(days) {
   background: #f3f4f6;
 }
 
+.select-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: #ecfdf5;
+  border-bottom: 1px solid #a7f3d0;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #065f46;
+  cursor: pointer;
+}
+
+.select-count {
+  font-size: 0.85rem;
+  color: #047857;
+}
+
 .empty-state {
   flex: 1;
   display: flex;
@@ -269,6 +378,9 @@ function getWaterBadgeClass(days) {
   padding: 16px;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .kokedama-card:hover {
@@ -279,6 +391,29 @@ function getWaterBadgeClass(days) {
 .kokedama-card.active {
   border-color: #10b981;
   background: #ecfdf5;
+}
+
+.kokedama-card.is-checked {
+  border-color: #059669;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 2px #10b981;
+}
+
+.card-checkbox {
+  padding-top: 4px;
+  flex-shrink: 0;
+}
+
+.card-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #10b981;
+  cursor: pointer;
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
 }
 
 .card-header {

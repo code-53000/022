@@ -8,12 +8,35 @@
       <button class="error-close" @click="store.clearError()">×</button>
     </div>
 
+    <div v-if="batchToast.show" class="batch-toast">
+      <div class="batch-toast-content">
+        <span class="batch-toast-icon">✅</span>
+        <span class="batch-toast-msg">已为 {{ batchToast.count }} 颗苔玉记录{{ batchToast.actionLabel }}</span>
+        <button class="batch-toast-undo" @click="undoBatch">撤销</button>
+      </div>
+      <button class="batch-toast-close" @click="dismissToast">×</button>
+    </div>
+
     <header class="app-header">
       <div class="header-content">
         <h1>🌿 苔玉养护日记</h1>
         <p class="subtitle">记录每一颗苔玉的生长节奏</p>
       </div>
       <div class="header-actions">
+        <button
+          class="btn btn-secondary header-tab"
+          :class="{ active: activeView === 'detail' }"
+          @click="activeView = 'detail'"
+        >
+          📋 详情
+        </button>
+        <button
+          class="btn btn-secondary header-tab"
+          :class="{ active: activeView === 'calendar' }"
+          @click="activeView = 'calendar'"
+        >
+          📅 日历
+        </button>
         <button class="btn btn-secondary" @click="handleExport">
           📤 导出数据
         </button>
@@ -33,16 +56,22 @@
     <main class="app-main">
       <aside class="sidebar">
         <KokedamaList
+          ref="listRef"
           @add="showAddForm = true"
+          @batch-care="openBatchCare"
         />
       </aside>
 
       <section class="content">
         <KokedamaDetail
+          v-if="activeView === 'detail'"
           :kokedama-id="store.selectedId"
           @back="store.clearSelection()"
           @edit="handleEdit"
           @deleted="store.clearSelection()"
+        />
+        <CareCalendar
+          v-else-if="activeView === 'calendar'"
         />
       </section>
     </main>
@@ -59,15 +88,24 @@
       @close="showEditForm = false; editingId = null"
       @saved="showEditForm = false; editingId = null"
     />
+
+    <BatchCarePanel
+      v-if="showBatchCare"
+      :kokedama-ids="batchCareIds"
+      @close="showBatchCare = false"
+      @done="handleBatchDone"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useKokedamaStore } from './stores/kokedama'
 import KokedamaList from './components/KokedamaList.vue'
 import KokedamaDetail from './components/KokedamaDetail.vue'
 import KokedamaForm from './components/KokedamaForm.vue'
+import CareCalendar from './components/CareCalendar.vue'
+import BatchCarePanel from './components/BatchCarePanel.vue'
 import { exportToJson, importFromJson, downloadJsonFile } from './utils/storage'
 
 const store = useKokedamaStore()
@@ -76,6 +114,29 @@ const showAddForm = ref(false)
 const showEditForm = ref(false)
 const editingId = ref(null)
 const importInput = ref(null)
+const activeView = ref('detail')
+const listRef = ref(null)
+
+const showBatchCare = ref(false)
+const batchCareIds = ref([])
+
+const batchToast = reactive({
+  show: false,
+  count: 0,
+  actionLabel: '',
+  recordRefs: []
+})
+
+let toastTimer = null
+
+const careActionLabels = {
+  water: '浸水',
+  mist: '喷雾',
+  trim: '修剪',
+  move: '移动',
+  check: '观察',
+  other: '其他'
+}
 
 onMounted(() => {
   store.init()
@@ -84,6 +145,43 @@ onMounted(() => {
 function handleEdit(id) {
   editingId.value = id
   showEditForm.value = true
+}
+
+function openBatchCare(ids) {
+  batchCareIds.value = [...ids]
+  showBatchCare.value = true
+}
+
+function handleBatchDone(result) {
+  showBatchCare.value = false
+  if (listRef.value) {
+    listRef.value.clearSelection()
+  }
+  batchToast.show = true
+  batchToast.count = result.count
+  batchToast.actionLabel = careActionLabels[result.action] || result.action
+  batchToast.recordRefs = result.recordRefs
+
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    batchToast.show = false
+    batchToast.recordRefs = []
+  }, 8000)
+}
+
+function undoBatch() {
+  if (batchToast.recordRefs.length > 0) {
+    store.batchDeleteCareRecords(batchToast.recordRefs)
+  }
+  batchToast.show = false
+  batchToast.recordRefs = []
+  if (toastTimer) clearTimeout(toastTimer)
+}
+
+function dismissToast() {
+  batchToast.show = false
+  batchToast.recordRefs = []
+  if (toastTimer) clearTimeout(toastTimer)
 }
 
 function handleExport() {
@@ -181,6 +279,79 @@ function handleImport(event) {
   animation: slideDown 0.3s ease;
 }
 
+.batch-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9998;
+  max-width: 90%;
+  animation: slideDown 0.3s ease;
+}
+
+.batch-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.batch-toast-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.batch-toast-msg {
+  color: #065f46;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.batch-toast-undo {
+  padding: 4px 12px;
+  border: 1px solid #10b981;
+  border-radius: 6px;
+  background: white;
+  color: #059669;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.batch-toast-undo:hover {
+  background: #d1fae5;
+}
+
+.batch-toast-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #065f46;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.batch-toast-close:hover {
+  background: #d1fae5;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -264,6 +435,12 @@ function handleImport(event) {
 
 .header-actions .btn:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.header-tab.active {
+  background: rgba(255, 255, 255, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+  font-weight: 600;
 }
 
 .app-main {

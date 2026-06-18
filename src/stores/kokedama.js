@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { loadFromStorage, saveToStorage, estimateStorageSize, checkStorageAvailable, getCurrentStorageSize, STORAGE_LIMIT_MB } from '../utils/storage'
-import { generateId, daysSince } from '../utils/date'
+import { generateId, daysSince, toDateKey } from '../utils/date'
 
 export const useKokedamaStore = defineStore('kokedama', () => {
   const kokedamas = ref([])
@@ -130,6 +130,30 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     if (!selectedId.value) return null
     return enrichedKokedamas.value.find(k => k.id === selectedId.value) || null
   })
+
+  const calendarHeatmapData = computed(() => {
+    const map = {}
+    kokedamas.value.forEach(k => {
+      k.careRecords.forEach(r => {
+        const key = toDateKey(r.timestamp)
+        if (!key) return
+        if (!map[key]) {
+          map[key] = { count: 0, records: [] }
+        }
+        map[key].count++
+        map[key].records.push({
+          ...r,
+          kokedamaId: k.id,
+          kokedamaName: k.name
+        })
+      })
+    })
+    return map
+  })
+
+  function getRecordsByDate(dateKey) {
+    return calendarHeatmapData.value[dateKey] || { count: 0, records: [] }
+  }
 
   function addKokedama(data) {
     const newKokedama = {
@@ -291,6 +315,61 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     return { success: true, added: toAdd.length }
   }
 
+  function batchAddCareRecords(kokedamaIds, recordData) {
+    const created = []
+    kokedamaIds.forEach(kid => {
+      const kokedama = kokedamas.value.find(k => k.id === kid)
+      if (!kokedama) return
+      const newRecord = {
+        id: generateId(),
+        action: recordData.action,
+        timestamp: recordData.timestamp || new Date().toISOString(),
+        notes: recordData.notes || '',
+        photoThumbnail: null
+      }
+      kokedama.careRecords.push(newRecord)
+      kokedama.careRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      created.push({ kokedamaId: kid, recordId: newRecord.id })
+    })
+    const success = persist()
+    if (!success) {
+      created.forEach(({ kokedamaId, recordId }) => {
+        const k = kokedamas.value.find(kk => kk.id === kokedamaId)
+        if (k) {
+          const idx = k.careRecords.findIndex(r => r.id === recordId)
+          if (idx !== -1) k.careRecords.splice(idx, 1)
+        }
+      })
+      return null
+    }
+    return created
+  }
+
+  function batchDeleteCareRecords(recordRefs) {
+    const backup = []
+    recordRefs.forEach(({ kokedamaId, recordId }) => {
+      const kokedama = kokedamas.value.find(k => k.id === kokedamaId)
+      if (!kokedama) return
+      const idx = kokedama.careRecords.findIndex(r => r.id === recordId)
+      if (idx !== -1) {
+        const removed = kokedama.careRecords.splice(idx, 1)[0]
+        backup.push({ kokedamaId, record: removed, index: idx })
+      }
+    })
+    const success = persist()
+    if (!success) {
+      backup.forEach(({ kokedamaId, record, index }) => {
+        const k = kokedamas.value.find(kk => kk.id === kokedamaId)
+        if (k) {
+          k.careRecords.splice(index, 0, record)
+          k.careRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        }
+      })
+      return false
+    }
+    return true
+  }
+
   function exportData() {
     return {
       kokedamas: kokedamas.value
@@ -309,6 +388,7 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     enrichedKokedamas,
     filteredKokedamas,
     selectedKokedama,
+    calendarHeatmapData,
     init,
     clearError,
     addKokedama,
@@ -316,11 +396,14 @@ export const useKokedamaStore = defineStore('kokedama', () => {
     deleteKokedama,
     addCareRecord,
     deleteCareRecord,
+    batchAddCareRecords,
+    batchDeleteCareRecords,
     selectKokedama,
     clearSelection,
     setFilters,
     resetFilters,
     setSorting,
+    getRecordsByDate,
     replaceAllData,
     appendData,
     exportData
